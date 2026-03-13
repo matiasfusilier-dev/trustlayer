@@ -16,7 +16,7 @@ const navItems = [
     items: [
       { href: '/documentos', label: 'Documentos', icon: '📄' },
       { href: '/apoderados', label: 'Apoderados', icon: '👤' },
-      { href: '/beneficiarios', label: 'Beneficiarios Finales', icon: '👥' },
+      { href: '/estructura-societaria', label: 'Estructura Societaria', icon: '👥' },
       { href: '/evaluacion-kyc', label: 'Evaluación KYC', icon: '✓' },
     ]
   },
