@@ -1,6 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useParams } from 'next/navigation';
+import { supabase } from '../../../../src/lib/supabase';
 
 const categorias = [
   {
@@ -62,48 +64,184 @@ interface DocExtra {
   nombre: string;
   descripcion: string;
   status: DocStatus;
+  file_url?: string;
 }
 
 export default function DocumentosPage() {
+  const params = useParams();
+  const orgId = params.orgId as string;
+
   const [statuses, setStatuses] = useState<Record<string, DocStatus>>({});
   const [descriptions, setDescriptions] = useState<Record<string, string>>({});
+  const [fileUrls, setFileUrls] = useState<Record<string, string>>({});
   const [uploading, setUploading] = useState<string | null>(null);
   const [showDescInput, setShowDescInput] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [docsAdicionales, setDocsAdicionales] = useState<DocExtra[]>([]);
   const [showAdicionalForm, setShowAdicionalForm] = useState(false);
   const [nuevoDoc, setNuevoDoc] = useState({ nombre: '', descripcion: '' });
   const [balancesAnteriores, setBalancesAnteriores] = useState<DocExtra[]>([]);
   const [showBalanceForm, setShowBalanceForm] = useState(false);
   const [nuevoBalance, setNuevoBalance] = useState({ nombre: '', descripcion: '' });
+  const [balanceFile, setBalanceFile] = useState<File | null>(null);
+  const [adicionalFile, setAdicionalFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    cargarDocumentos();
+  }, [orgId]);
+
+  const cargarDocumentos = async () => {
+    const { data, error } = await supabase
+      .from('documents')
+      .select('*')
+      .eq('organization_id', orgId);
+
+    if (error) { console.error(error); return; }
+
+    const newStatuses: Record<string, DocStatus> = {};
+    const newDescriptions: Record<string, string> = {};
+    const newFileUrls: Record<string, string> = {};
+    const extras: DocExtra[] = [];
+    const balances: DocExtra[] = [];
+
+    (data || []).forEach((doc: any) => {
+      if (doc.category === 'adicional') {
+        extras.push({ id: doc.id, nombre: doc.name, descripcion: doc.type, status: doc.ai_status as DocStatus, file_url: doc.file_url });
+      } else if (doc.type === 'balances_anteriores') {
+        balances.push({ id: doc.id, nombre: doc.name, descripcion: '', status: doc.ai_status as DocStatus, file_url: doc.file_url });
+      } else {
+        newStatuses[doc.type] = doc.ai_status as DocStatus;
+        newDescriptions[doc.type] = doc.name;
+        newFileUrls[doc.type] = doc.file_url || '';
+      }
+    });
+
+    setStatuses(newStatuses);
+    setDescriptions(newDescriptions);
+    setFileUrls(newFileUrls);
+    setDocsAdicionales(extras);
+    setBalancesAnteriores(balances);
+  };
+
+  const handleUpload = async (docId: string) => {
+    if (!selectedFile) return;
+    setUploading(docId);
+
+    const ext = selectedFile.name.split('.').pop();
+    const filePath = `${orgId}/${docId}_${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('documentos')
+      .upload(filePath, selectedFile);
+
+    if (uploadError) {
+      console.error('Error subiendo archivo:', uploadError);
+      alert('Error al subir el archivo');
+      setUploading(null);
+      return;
+    }
+
+    const { data: urlData } = supabase.storage
+      .from('documentos')
+      .getPublicUrl(filePath);
+
+    const { error: dbError } = await supabase
+      .from('documents')
+      .upsert({
+        organization_id: orgId,
+        name: descriptions[docId] || selectedFile.name,
+        type: docId,
+        category: 'kyc_obligatorio',
+        file_url: urlData.publicUrl,
+        file_size: `${(selectedFile.size / 1024).toFixed(0)} KB`,
+        ai_status: 'revision',
+      }, { onConflict: 'organization_id,type' });
+
+    if (dbError) {
+      console.error('Error guardando metadata:', dbError);
+    } else {
+      setStatuses(prev => ({ ...prev, [docId]: 'revision' }));
+      setFileUrls(prev => ({ ...prev, [docId]: urlData.publicUrl }));
+    }
+
+    setUploading(null);
+    setShowDescInput(null);
+    setSelectedFile(null);
+  };
+
+  const handleAgregarBalance = async () => {
+    if (!nuevoBalance.nombre || !balanceFile) return;
+    setUploading('balance_ant');
+
+    const ext = balanceFile.name.split('.').pop();
+    const filePath = `${orgId}/balance_ant_${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('documentos')
+      .upload(filePath, balanceFile);
+
+    if (uploadError) { alert('Error al subir'); setUploading(null); return; }
+
+    const { data: urlData } = supabase.storage.from('documentos').getPublicUrl(filePath);
+
+    const { data, error } = await supabase.from('documents').insert({
+      organization_id: orgId,
+      name: nuevoBalance.nombre,
+      type: 'balances_anteriores',
+      category: 'contable',
+      file_url: urlData.publicUrl,
+      file_size: `${(balanceFile.size / 1024).toFixed(0)} KB`,
+      ai_status: 'revision',
+    }).select().single();
+
+    if (!error && data) {
+      setBalancesAnteriores(prev => [...prev, { id: data.id, nombre: data.name, descripcion: '', status: 'revision', file_url: data.file_url }]);
+    }
+
+    setNuevoBalance({ nombre: '', descripcion: '' });
+    setBalanceFile(null);
+    setShowBalanceForm(false);
+    setUploading(null);
+  };
+
+  const handleAgregarAdicional = async () => {
+    if (!nuevoDoc.nombre || !adicionalFile) return;
+    setUploading('adicional');
+
+    const ext = adicionalFile.name.split('.').pop();
+    const filePath = `${orgId}/adicional_${Date.now()}.${ext}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from('documentos')
+      .upload(filePath, adicionalFile);
+
+    if (uploadError) { alert('Error al subir'); setUploading(null); return; }
+
+    const { data: urlData } = supabase.storage.from('documentos').getPublicUrl(filePath);
+
+    const { data, error } = await supabase.from('documents').insert({
+      organization_id: orgId,
+      name: nuevoDoc.nombre,
+      type: nuevoDoc.descripcion || 'adicional',
+      category: 'adicional',
+      file_url: urlData.publicUrl,
+      file_size: `${(adicionalFile.size / 1024).toFixed(0)} KB`,
+      ai_status: 'revision',
+    }).select().single();
+
+    if (!error && data) {
+      setDocsAdicionales(prev => [...prev, { id: data.id, nombre: data.name, descripcion: data.type, status: 'revision', file_url: data.file_url }]);
+    }
+
+    setNuevoDoc({ nombre: '', descripcion: '' });
+    setAdicionalFile(null);
+    setShowAdicionalForm(false);
+    setUploading(null);
+  };
 
   const totalObligatorios = categorias.flatMap(c => c.docs).filter(d => d.obligatorio).length;
   const totalAprobados = Object.values(statuses).filter(s => s === 'aprobado').length;
   const progreso = Math.round((totalAprobados / totalObligatorios) * 100);
-
-  const handleUpload = (docId: string) => {
-    setUploading(docId);
-    setShowDescInput(null);
-    setTimeout(() => {
-      setStatuses(prev => ({ ...prev, [docId]: 'revision' }));
-      setUploading(null);
-    }, 1500);
-  };
-
-  const handleAgregarBalance = () => {
-    if (!nuevoBalance.nombre) return;
-    const id = `balance_ant_${Date.now()}`;
-    setBalancesAnteriores(prev => [...prev, { id, nombre: nuevoBalance.nombre, descripcion: nuevoBalance.descripcion, status: 'revision' }]);
-    setNuevoBalance({ nombre: '', descripcion: '' });
-    setShowBalanceForm(false);
-  };
-
-  const handleAgregarAdicional = () => {
-    if (!nuevoDoc.nombre) return;
-    const id = `adicional_${Date.now()}`;
-    setDocsAdicionales(prev => [...prev, { id, nombre: nuevoDoc.nombre, descripcion: nuevoDoc.descripcion, status: 'revision' }]);
-    setNuevoDoc({ nombre: '', descripcion: '' });
-    setShowAdicionalForm(false);
-  };
 
   const inputStyle: React.CSSProperties = {
     width: '100%', backgroundColor: '#111', border: '1px solid #333',
@@ -129,7 +267,6 @@ export default function DocumentosPage() {
   return (
     <div style={{ padding: '32px' }}>
 
-      {/* Header */}
       <div style={{ marginBottom: '32px' }}>
         <h1 style={{ fontSize: '22px', fontWeight: '600', margin: '0 0 4px 0', color: 'white' }}>
           Documentos KYC
@@ -139,7 +276,6 @@ export default function DocumentosPage() {
         </p>
       </div>
 
-      {/* Progreso */}
       <div style={{
         backgroundColor: '#111', border: '1px solid #1f1f1f',
         borderRadius: '12px', padding: '20px', marginBottom: '32px'
@@ -159,7 +295,6 @@ export default function DocumentosPage() {
         </div>
       </div>
 
-      {/* Categorias */}
       {categorias.map((cat) => (
         <div key={cat.titulo} style={{
           backgroundColor: '#111', border: '1px solid #1f1f1f',
@@ -210,17 +345,22 @@ export default function DocumentosPage() {
                         onChange={(e) => setNuevoBalance(prev => ({ ...prev, nombre: e.target.value }))}
                         style={inputStyle}
                       />
-                      <p style={{ margin: '0 0 6px 0', fontSize: '12px', color: '#aaa' }}>Descripción adicional</p>
+                      <p style={{ margin: '0 0 6px 0', fontSize: '12px', color: '#aaa' }}>Archivo *</p>
                       <input
-                        type="text"
-                        placeholder="Ej: Certificado por Contador Público Nacional, mat. 12345"
-                        value={nuevoBalance.descripcion}
-                        onChange={(e) => setNuevoBalance(prev => ({ ...prev, descripcion: e.target.value }))}
-                        style={inputStyle}
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={(e) => setBalanceFile(e.target.files?.[0] || null)}
+                        style={{ ...inputStyle, padding: '6px' }}
                       />
                       <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                         <button onClick={() => setShowBalanceForm(false)} style={btnSecondary}>Cancelar</button>
-                        <button onClick={handleAgregarBalance} style={btnPrimary}>Subir balance</button>
+                        <button
+                          onClick={handleAgregarBalance}
+                          disabled={!nuevoBalance.nombre || !balanceFile || uploading === 'balance_ant'}
+                          style={{ ...btnPrimary, opacity: (!nuevoBalance.nombre || !balanceFile) ? 0.5 : 1 }}
+                        >
+                          {uploading === 'balance_ant' ? 'Subiendo...' : 'Subir balance'}
+                        </button>
                       </div>
                     </div>
                   )}
@@ -230,9 +370,12 @@ export default function DocumentosPage() {
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                       padding: '10px 0 10px 16px', borderBottom: '1px solid #1a1a1a'
                     }}>
-                      <div>
-                        <div style={{ fontSize: '13px', color: '#888' }}>{b.nombre}</div>
-                        {b.descripcion && <div style={{ fontSize: '11px', color: '#555', fontStyle: 'italic' }}>{b.descripcion}</div>}
+                      <div style={{ fontSize: '13px', color: '#888' }}>
+                        {b.file_url ? (
+                          <a href={b.file_url} target="_blank" rel="noopener noreferrer" style={{ color: '#6366f1', textDecoration: 'none' }}>
+                            {b.nombre} ↗
+                          </a>
+                        ) : b.nombre}
                       </div>
                       <span style={{
                         fontSize: '11px', fontWeight: '500',
@@ -258,10 +401,11 @@ export default function DocumentosPage() {
                         Opcional
                       </span>
                     )}
-                    {descriptions[doc.id] && (
-                      <span style={{ fontSize: '11px', color: '#555', fontStyle: 'italic' }}>
-                        "{descriptions[doc.id]}"
-                      </span>
+                    {fileUrls[doc.id] && (
+                      <a href={fileUrls[doc.id]} target="_blank" rel="noopener noreferrer"
+                        style={{ fontSize: '11px', color: '#6366f1', textDecoration: 'none' }}>
+                        Ver archivo ↗
+                      </a>
                     )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -272,7 +416,7 @@ export default function DocumentosPage() {
                     }}>{cfg.label}</span>
                     {status === 'pendiente' || status === 'rechazado' ? (
                       <button
-                        onClick={() => setShowDescInput(showDesc ? null : doc.id)}
+                        onClick={() => { setShowDescInput(showDesc ? null : doc.id); setSelectedFile(null); }}
                         disabled={isUploading}
                         style={btnOutline}
                       >
@@ -281,7 +425,12 @@ export default function DocumentosPage() {
                     ) : status === 'aprobado' ? (
                       <span style={{ fontSize: '12px', color: '#22c55e' }}>✓</span>
                     ) : (
-                      <span style={{ fontSize: '12px', color: '#555' }}>—</span>
+                      <button
+                        onClick={() => { setShowDescInput(showDesc ? null : doc.id); setSelectedFile(null); }}
+                        style={{ ...btnOutline, opacity: 0.6 }}
+                      >
+                        Reemplazar
+                      </button>
                     )}
                   </div>
                 </div>
@@ -301,9 +450,24 @@ export default function DocumentosPage() {
                       onChange={(e) => setDescriptions(prev => ({ ...prev, [doc.id]: e.target.value }))}
                       style={inputStyle}
                     />
+                    <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#555' }}>
+                      Archivo *
+                    </p>
+                    <input
+                      type="file"
+                      accept=".pdf,.jpg,.jpeg,.png"
+                      onChange={(e) => setSelectedFile(e.target.files?.[0] || null)}
+                      style={{ ...inputStyle, padding: '6px' }}
+                    />
                     <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                      <button onClick={() => setShowDescInput(null)} style={btnSecondary}>Cancelar</button>
-                      <button onClick={() => handleUpload(doc.id)} style={btnPrimary}>Confirmar y subir</button>
+                      <button onClick={() => { setShowDescInput(null); setSelectedFile(null); }} style={btnSecondary}>Cancelar</button>
+                      <button
+                        onClick={() => handleUpload(doc.id)}
+                        disabled={!selectedFile || isUploading}
+                        style={{ ...btnPrimary, opacity: !selectedFile ? 0.5 : 1 }}
+                      >
+                        {isUploading ? 'Subiendo...' : 'Confirmar y subir'}
+                      </button>
                     </div>
                   </div>
                 )}
@@ -313,7 +477,6 @@ export default function DocumentosPage() {
         </div>
       ))}
 
-      {/* Documentos adicionales */}
       <div style={{
         backgroundColor: '#111', border: '1px solid #1f1f1f',
         borderRadius: '12px', padding: '24px', marginBottom: '16px'
@@ -353,9 +516,22 @@ export default function DocumentosPage() {
               onChange={(e) => setNuevoDoc(prev => ({ ...prev, descripcion: e.target.value }))}
               style={inputStyle}
             />
+            <p style={{ margin: '0 0 6px 0', fontSize: '12px', color: '#aaa' }}>Archivo *</p>
+            <input
+              type="file"
+              accept=".pdf,.jpg,.jpeg,.png"
+              onChange={(e) => setAdicionalFile(e.target.files?.[0] || null)}
+              style={{ ...inputStyle, padding: '6px' }}
+            />
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowAdicionalForm(false)} style={btnSecondary}>Cancelar</button>
-              <button onClick={handleAgregarAdicional} style={btnPrimary}>Subir documento</button>
+              <button onClick={() => { setShowAdicionalForm(false); setAdicionalFile(null); }} style={btnSecondary}>Cancelar</button>
+              <button
+                onClick={handleAgregarAdicional}
+                disabled={!nuevoDoc.nombre || !adicionalFile || uploading === 'adicional'}
+                style={{ ...btnPrimary, opacity: (!nuevoDoc.nombre || !adicionalFile) ? 0.5 : 1 }}
+              >
+                {uploading === 'adicional' ? 'Subiendo...' : 'Subir documento'}
+              </button>
             </div>
           </div>
         )}
@@ -372,7 +548,13 @@ export default function DocumentosPage() {
             padding: '12px 0', borderBottom: '1px solid #1a1a1a'
           }}>
             <div>
-              <div style={{ fontSize: '13px', color: '#aaa' }}>{doc.nombre}</div>
+              <div style={{ fontSize: '13px', color: '#aaa' }}>
+                {doc.file_url ? (
+                  <a href={doc.file_url} target="_blank" rel="noopener noreferrer" style={{ color: '#6366f1', textDecoration: 'none' }}>
+                    {doc.nombre} ↗
+                  </a>
+                ) : doc.nombre}
+              </div>
               {doc.descripcion && (
                 <div style={{ fontSize: '11px', color: '#555', marginTop: '2px', fontStyle: 'italic' }}>
                   {doc.descripcion}

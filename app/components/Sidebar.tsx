@@ -23,9 +23,8 @@ const navItems = [
   {
     section: 'ANÁLISIS',
     items: [
-      { href: '/riesgo', label: 'Riesgo Crediticio', icon: '📊' },
+      { href: '/riesgo', label: 'Análisis Empresa', icon: '📊' },
       { href: '/apoderados-info', label: 'Info de Apoderados', icon: '🔍' },
-      { href: '/bcra', label: 'BCRA', icon: '🏦' },
       { href: '/mercado', label: 'Mercado & Noticias', icon: '📈' },
     ]
   },
