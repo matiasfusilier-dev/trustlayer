@@ -1,10 +1,17 @@
 'use client';
 
 const kycColor = (status: string) => {
-  if (status === 'Aprobado') return '#22c55e';
-  if (status === 'En revisión') return '#f59e0b';
-  if (status === 'Rechazado') return '#ef4444';
+  if (status === 'completo') return '#22c55e';
+  if (status === 'pendiente') return '#f59e0b';
+  if (status === 'alerta') return '#ef4444';
   return '#555';
+};
+
+const kycLabel = (status: string) => {
+  if (status === 'completo') return 'Completo';
+  if (status === 'pendiente') return 'Pendiente';
+  if (status === 'alerta') return '⚠ Alerta';
+  return 'Sin estado';
 };
 
 const scoreColor = (score: number) => {
@@ -16,15 +23,12 @@ const scoreColor = (score: number) => {
 interface Org {
   id: string;
   name: string;
-  tipo: string;
-  industria: string;
-  tamanio: string;
-  role?: string;
-  autorizadoPor?: string;
-  kyc: string;
-  score: number;
-  docsPendientes: number;
-  ultimaActividad: string;
+  cuit: string;
+  type: string;
+  size: string;
+  sector: string;
+  kyc_status: string;
+  risk_score: number;
 }
 
 export default function OrgCard({ org, autorizado }: { org: Org; autorizado?: boolean }) {
@@ -43,7 +47,11 @@ export default function OrgCard({ org, autorizado }: { org: Org; autorizado?: bo
           <div>
             <div style={{ fontWeight: '600', fontSize: '15px', color: '#fff', marginBottom: '2px' }}>{org.name}</div>
             <div style={{ fontSize: '12px', color: '#555', display: 'flex', gap: '6px' }}>
-              <span>{org.tipo}</span><span>·</span><span>{org.industria}</span><span>·</span><span>{org.tamanio}</span>
+              {org.type && <span>{org.type}</span>}
+              {org.type && org.sector && <span>·</span>}
+              {org.sector && <span>{org.sector}</span>}
+              {org.sector && org.size && <span>·</span>}
+              {org.size && <span>{org.size}</span>}
             </div>
           </div>
           <span style={{
@@ -51,43 +59,40 @@ export default function OrgCard({ org, autorizado }: { org: Org; autorizado?: bo
             color: autorizado ? '#3b82f6' : '#6366f1',
             fontSize: '11px', padding: '4px 10px', borderRadius: '20px', fontWeight: '500', whiteSpace: 'nowrap'
           }}>
-            {autorizado ? 'Autorizado' : org.role}
+            {autorizado ? 'Autorizado' : 'Propietario'}
           </span>
         </div>
 
-        {autorizado && (
-          <div style={{ fontSize: '11px', color: '#444', marginBottom: '12px' }}>
-            Autorizado por {org.autorizadoPor}
-          </div>
-        )}
+        <div style={{ fontSize: '11px', color: '#444', marginBottom: '12px' }}>
+          CUIT {org.cuit || '—'}
+        </div>
 
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
           <span style={{ fontSize: '12px', color: '#555' }}>Estado KYC</span>
           <span style={{
-            fontSize: '12px', fontWeight: '600', color: kycColor(org.kyc),
-            backgroundColor: kycColor(org.kyc) + '20', padding: '2px 10px', borderRadius: '20px'
-          }}>{org.kyc}</span>
+            fontSize: '12px', fontWeight: '600',
+            color: kycColor(org.kyc_status),
+            backgroundColor: kycColor(org.kyc_status) + '20',
+            padding: '2px 10px', borderRadius: '20px'
+          }}>{kycLabel(org.kyc_status)}</span>
         </div>
 
-        <div style={{ marginBottom: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-            <span style={{ fontSize: '12px', color: '#555' }}>Score crediticio</span>
-            <span style={{ fontSize: '13px', fontWeight: '700', color: scoreColor(org.score) }}>{org.score}</span>
+        {org.risk_score ? (
+          <div style={{ marginBottom: '8px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+              <span style={{ fontSize: '12px', color: '#555' }}>Score crediticio</span>
+              <span style={{ fontSize: '13px', fontWeight: '700', color: scoreColor(org.risk_score) }}>{org.risk_score}</span>
+            </div>
+            <div style={{ backgroundColor: '#1f1f1f', borderRadius: '4px', height: '4px' }}>
+              <div style={{
+                width: `${org.risk_score}%`, height: '4px',
+                backgroundColor: scoreColor(org.risk_score), borderRadius: '4px'
+              }} />
+            </div>
           </div>
-          <div style={{ backgroundColor: '#1f1f1f', borderRadius: '4px', height: '4px' }}>
-            <div style={{
-              width: `${org.score}%`, height: '4px',
-              backgroundColor: scoreColor(org.score), borderRadius: '4px'
-            }} />
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: '12px', borderTop: '1px solid #1a1a1a' }}>
-          <div style={{ fontSize: '11px', color: org.docsPendientes > 0 ? '#f59e0b' : '#555' }}>
-            {org.docsPendientes > 0 ? `⚠ ${org.docsPendientes} docs pendientes` : '✓ Docs al día'}
-          </div>
-          <div style={{ fontSize: '11px', color: '#444' }}>{org.ultimaActividad}</div>
-        </div>
+        ) : (
+          <div style={{ fontSize: '12px', color: '#333', marginBottom: '8px' }}>Sin score crediticio</div>
+        )}
       </div>
     </a>
   );
