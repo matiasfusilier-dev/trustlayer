@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
-  'https://llrdjgcswlllxvwemalp.supabase.co',
-  'sb_publishable_uRQNo-ap4Lqn_QjDNvfXWw_pDkok0VL'
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
 type Tab = 'score' | 'ratios' | 'historial' | 'cualitativo';

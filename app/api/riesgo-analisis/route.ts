@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
-  'https://llrdjgcswlllxvwemalp.supabase.co',
-  'sb_publishable_uRQNo-ap4Lqn_QjDNvfXWw_pDkok0VL'
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
 export async function POST(req: NextRequest) {
@@ -41,7 +41,7 @@ Respondé ÚNICAMENTE con JSON válido:
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': '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',
+        'x-api-key': process.env.ANTHROPIC_API_KEY!,
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
